@@ -426,88 +426,90 @@ func InstagramPOC(ctx playwright.BrowserContext) {
 		if fetchedData > maxFetchedData {
 			break
 		}
-		if columns, err := row.Locator("> div").All(); err != nil {
+		columns, err := row.Locator("> div").All()
+		if err != nil {
 			log.Fatalf("failed to get columns row")
-		} else {
-			for _, column := range columns {
-				fetchedData++
-				if fetchedData > maxFetchedData {
-					break
-				}
-				column.Hover()
-				newEntry := Result{
-					Link:         "",
-					TotalComment: 0,
-					TotalLike:    0,
-					Username:     "",
-					Date:         time.Time{},
-					Post:         "",
-				}
+			return
+		}
 
-				if onHoverContent, err := column.Locator("a").AllInnerTexts(); err != nil {
-					log.Fatalf("failed to get like & comment: %v", err)
-				} else {
-					contentSplit := strings.Split(onHoverContent[0], "\n")
-					commentTotal := parseTotal(contentSplit[0])
-					likeTotal := parseTotal(contentSplit[1])
-					fmt.Printf("comment total: %v, like total: %v \n", commentTotal, likeTotal)
-					newEntry.TotalComment = commentTotal
-					newEntry.TotalLike = likeTotal
-				}
+		for _, column := range columns {
+			fetchedData++
+			if fetchedData > maxFetchedData {
+				break
+			}
+			column.Hover()
+			newEntry := Result{
+				Link:         "",
+				TotalComment: 0,
+				TotalLike:    0,
+				Username:     "",
+				Date:         time.Time{},
+				Post:         "",
+			}
 
-				if link, err := column.Locator("a").GetAttribute("href"); err != nil {
-					log.Fatalf("failed to get link: %v", err)
-				} else {
-					fmt.Printf("post link: %v \n", link)
-					newEntry.Link = fmt.Sprintf("https://instagram.com/%v", link)
-				}
+			onHoverContent, err := column.Locator("a").AllInnerTexts()
+			if err != nil {
+				log.Fatalf("failed to get like & comment: %v", err)
+			}
+			contentSplit := strings.Split(onHoverContent[0], "\n")
+			commentTotal := parseTotal(contentSplit[0])
+			likeTotal := parseTotal(contentSplit[1])
+			fmt.Printf("comment total: %v, like total: %v \n", commentTotal, likeTotal)
+			newEntry.TotalComment = commentTotal
+			newEntry.TotalLike = likeTotal
 
-				column.Click()
-				postDescLocator := "article[role=\"presentation\"] > div > div:nth-child(2) > div > div > div:nth-child(2) > div > ul > div:first-child"
-				descLocator := page.Locator(postDescLocator).First()
+			link, err := column.Locator("a").GetAttribute("href")
+			if err != nil {
+				log.Fatalf("failed to get link: %v", err)
+			}
+			fmt.Printf("post link: %v \n", link)
+			newEntry.Link = fmt.Sprintf("https://instagram.com/%v", link)
 
-				selectorUsername := "> li > div > div > div:nth-child(2) > h2 a"
-				if username, err := descLocator.Locator(selectorUsername).InnerText(); err != nil {
-					log.Fatalf("failed to get username: %v", err)
-				} else {
-					fmt.Printf("username: %v \n", username)
-					newEntry.Username = username
-				}
+			column.Click()
+			postDescLocator := "article[role=\"presentation\"] > div > div:nth-child(2) > div > div > div:nth-child(2) > div > ul > div:first-child"
+			descLocator := page.Locator(postDescLocator).First()
 
-				descTextLocator := "> li > div > div > div:nth-child(2) > div"
-				if descText, err := descLocator.Locator(descTextLocator).Nth(0).InnerText(); err != nil {
-					log.Fatalf("failed to get description text: %v", err)
-				} else {
-					fmt.Printf("desc: %v \n", descText)
-					newEntry.Post = descText
-				}
+			selectorUsername := "> li > div > div > div:nth-child(2) > h2 a"
+			if err != nil {
+				log.Fatalf("failed to get username: %v", err)
+			}
+			username, err := descLocator.Locator(selectorUsername).InnerText()
+			fmt.Printf("username: %v \n", username)
+			newEntry.Username = username
 
-				if rawDateTime, err := descLocator.Locator(descTextLocator).Nth(1).Locator("> span time[datetime]").GetAttribute("datetime"); err != nil {
-					log.Fatalf("failed to get datetime: %v", err)
-				} else {
-					dateTime, err := time.Parse("2006-01-02T15:04:05.000Z", rawDateTime)
-					if err != nil {
-						log.Fatalf("failed to parse time: %v", err)
-					}
-					fmt.Printf("desc: %v \n", dateTime)
-					newEntry.Date = dateTime
-				}
+			descTextLocator := "> li > div > div > div:nth-child(2) > div"
+			if err != nil {
+				log.Fatalf("failed to get description text: %v", err)
+			}
+			descText, err := descLocator.Locator(descTextLocator).Nth(0).InnerText()
+			fmt.Printf("desc: %v \n", descText)
+			newEntry.Post = descText
 
-				if err := page.Locator("svg[aria-label=\"Close\"]").First().Click(); err != nil {
-					log.Fatalf("failed to close post modal: %v", err)
-				}
-				if err := page.WaitForURL(targetURI); err != nil {
-					log.Fatalf("browser is not redirected back to profile page: %v", err)
-				}
-				results = append(results, newEntry)
+			rawDateTime, err := descLocator.Locator(descTextLocator).Nth(1).Locator("> span time[datetime]").GetAttribute("datetime")
+			if err != nil {
+				log.Fatalf("failed to get datetime: %v", err)
+			}
+			dateTime, err := time.Parse("2006-01-02T15:04:05.000Z", rawDateTime)
+			if err != nil {
+				log.Fatalf("failed to parse time: %v", err)
+			}
+			fmt.Printf("desc: %v \n", dateTime)
+			newEntry.Date = dateTime
 
-				csvData = newEntry.ToCSV()
-				_, err = file.WriteString(csvData)
-				if err != nil {
-					log.Fatalf("could not write to file: %v", err)
-				} else {
-					fmt.Printf("post dumped to Csv: %v", fetchedData)
-				}
+			if err := page.Locator("svg[aria-label=\"Close\"]").First().Click(); err != nil {
+				log.Fatalf("failed to close post modal: %v", err)
+			}
+			if err := page.WaitForURL(targetURI); err != nil {
+				log.Fatalf("browser is not redirected back to profile page: %v", err)
+			}
+			results = append(results, newEntry)
+
+			csvData = newEntry.ToCSV()
+			_, err = file.WriteString(csvData)
+			if err != nil {
+				log.Fatalf("could not write to file: %v", err)
+			} else {
+				fmt.Printf("post dumped to Csv: %v", fetchedData)
 			}
 		}
 	}
