@@ -1,9 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,7 +35,9 @@ func main() {
 	}
 
 	// FacebookPOC(context)
-	TwitterPOC(context)
+	// TwitterPOC(context)
+	// InstagramPOC(context)
+	YoutubePOC(context)
 }
 
 func TwitterPOC(context playwright.BrowserContext) {
@@ -253,7 +259,6 @@ func FacebookPOC(context playwright.BrowserContext) {
 	}
 	page.GetByRole("link", playwright.PageGetByRoleOptions{Name: "Timeline"}).Click()
 	targetPage := 5
-
 	// Convert results to CSV
 
 	// Write CSV data to a file
@@ -270,6 +275,7 @@ func FacebookPOC(context playwright.BrowserContext) {
 	}
 
 	results := []map[string]interface{}{}
+
 	for i := 0; i < targetPage; i++ {
 		page.WaitForSelector("div .feed", playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(60000)})
 		articlesLocator := page.Locator(`article[data-ft='{"tn":"-R"}']`)
@@ -318,5 +324,341 @@ func FacebookPOC(context playwright.BrowserContext) {
 		}
 		page.GetByRole("link", playwright.PageGetByRoleOptions{Name: "See more stories"}).Click()
 	}
+}
 
+type Result struct {
+	Link         string
+	TotalComment int
+	TotalLike    int
+	Username     string
+	Date         time.Time
+	Post         string
+}
+
+func (res Result) ToCSV() string {
+	return fmt.Sprintf(
+		"%s,%s,%s,%s,%s,%s,%s\n",
+		url.QueryEscape(res.Username),
+		url.QueryEscape(res.Post),
+		url.QueryEscape(res.Date.String()),
+		url.QueryEscape(res.Link),
+		strconv.Itoa(res.TotalLike),
+		strconv.Itoa(res.TotalComment),
+		"false",
+	)
+}
+
+func InstagramPOC(ctx playwright.BrowserContext) {
+	dat, err := os.ReadFile("./cookies-ig-icjonoss.txt")
+	if err != nil {
+		log.Fatalf("failed to read cookies file: %v", err)
+		return
+	}
+
+	cookiesRaw := string(dat)
+	re := regexp.MustCompile("\t|\n")
+	cookieSplitRaw := re.Split(cookiesRaw, -1)
+	// parsing empty
+	cookieSplit := []string{}
+	for _, v := range cookieSplitRaw {
+		if len(v) > 0 {
+			cookieSplit = append(cookieSplit, v)
+		}
+	}
+
+	cookies := []playwright.OptionalCookie{}
+	for i := 0; i < len(cookieSplit)/7; i++ {
+		idx := i * 7
+		expire, _ := strconv.ParseFloat(cookieSplit[idx+4], 64)
+		nc := playwright.OptionalCookie{
+			Name:     cookieSplit[idx+5],
+			Value:    cookieSplit[idx+6],
+			Domain:   playwright.String(cookieSplit[idx+0]),
+			Path:     playwright.String(cookieSplit[idx+2]),
+			Expires:  playwright.Float(expire),
+			HttpOnly: playwright.Bool(true),
+			Secure:   playwright.Bool(true),
+		}
+		cookies = append(cookies, nc)
+	}
+
+	if err := ctx.AddCookies(cookies); err != nil {
+		log.Fatalf("failed to set cookie: %v", err)
+	}
+
+	page, err := ctx.NewPage()
+	targetURI := "https://www.instagram.com/kementerian.atrbpn/"
+	if _, err := page.Goto(targetURI); err != nil {
+		log.Fatalf("failed to open page %v : %v", targetURI, err)
+	}
+
+	rows, err := page.Locator("main > div > div:nth-child(3) > div > div").All()
+	if err != nil {
+		log.Fatalf("failed to get content rows")
+	}
+
+	// helper function
+	parseTotal := func(v string) int {
+		regex := regexp.MustCompile("\\D")
+		str := regex.ReplaceAllString(v, "")
+		fmt.Println(str)
+		res, _ := strconv.Atoi(str)
+		return res
+	}
+
+	// Write CSV data to a file
+	file, err := os.OpenFile("instagram.csv", os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatalf("could not create file: %v", err)
+	}
+	defer file.Close()
+
+	csvData := "sep=,\nusername,post,date,url,like,comment,is_repost\n"
+	_, err = file.WriteString(csvData)
+	if err != nil {
+		log.Fatalf("could not write to file: %v", err)
+	}
+
+	maxFetchedData := 10
+	fetchedData := 0
+	results := []Result{}
+	// TODO handling infinite scrolling
+	// https://stackoverflow.com/questions/69183922/playwright-auto-scroll-to-bottom-of-infinite-scroll-pag
+	for _, row := range rows {
+		if fetchedData > maxFetchedData {
+			break
+		}
+		columns, err := row.Locator("> div").All()
+		if err != nil {
+			log.Fatalf("failed to get columns row")
+			return
+		}
+
+		for _, column := range columns {
+			fetchedData++
+			if fetchedData > maxFetchedData {
+				break
+			}
+			column.Hover()
+			newEntry := Result{
+				Link:         "",
+				TotalComment: 0,
+				TotalLike:    0,
+				Username:     "",
+				Date:         time.Time{},
+				Post:         "",
+			}
+
+			onHoverContent, err := column.Locator("a").AllInnerTexts()
+			if err != nil {
+				log.Fatalf("failed to get like & comment: %v", err)
+			}
+			contentSplit := strings.Split(onHoverContent[0], "\n")
+			commentTotal := parseTotal(contentSplit[0])
+			likeTotal := parseTotal(contentSplit[1])
+			fmt.Printf("comment total: %v, like total: %v \n", commentTotal, likeTotal)
+			newEntry.TotalComment = commentTotal
+			newEntry.TotalLike = likeTotal
+
+			link, err := column.Locator("a").GetAttribute("href")
+			if err != nil {
+				log.Fatalf("failed to get link: %v", err)
+			}
+			fmt.Printf("post link: %v \n", link)
+			newEntry.Link = fmt.Sprintf("https://instagram.com/%v", link)
+
+			column.Click()
+			postDescLocator := "article[role=\"presentation\"] > div > div:nth-child(2) > div > div > div:nth-child(2) > div > ul > div:first-child"
+			descLocator := page.Locator(postDescLocator).First()
+
+			selectorUsername := "> li > div > div > div:nth-child(2) > h2 a"
+			if err != nil {
+				log.Fatalf("failed to get username: %v", err)
+			}
+			username, err := descLocator.Locator(selectorUsername).InnerText()
+			fmt.Printf("username: %v \n", username)
+			newEntry.Username = username
+
+			descTextLocator := "> li > div > div > div:nth-child(2) > div"
+			if err != nil {
+				log.Fatalf("failed to get description text: %v", err)
+			}
+			descText, err := descLocator.Locator(descTextLocator).Nth(0).InnerText()
+			fmt.Printf("desc: %v \n", descText)
+			newEntry.Post = descText
+
+			rawDateTime, err := descLocator.Locator(descTextLocator).Nth(1).Locator("> span time[datetime]").GetAttribute("datetime")
+			if err != nil {
+				log.Fatalf("failed to get datetime: %v", err)
+			}
+			dateTime, err := time.Parse("2006-01-02T15:04:05.000Z", rawDateTime)
+			if err != nil {
+				log.Fatalf("failed to parse time: %v", err)
+			}
+			fmt.Printf("desc: %v \n", dateTime)
+			newEntry.Date = dateTime
+
+			if err := page.Locator("svg[aria-label=\"Close\"]").First().Click(); err != nil {
+				log.Fatalf("failed to close post modal: %v", err)
+			}
+			if err := page.WaitForURL(targetURI); err != nil {
+				log.Fatalf("browser is not redirected back to profile page: %v", err)
+			}
+			results = append(results, newEntry)
+
+			csvData = newEntry.ToCSV()
+			_, err = file.WriteString(csvData)
+			if err != nil {
+				log.Fatalf("could not write to file: %v", err)
+			} else {
+				fmt.Printf("post dumped to Csv: %v", fetchedData)
+			}
+		}
+	}
+}
+
+type ResultYoutube struct {
+	Link         string
+	TotalComment int
+	TotalLike    int
+	Username     string
+	Date         time.Time
+	Desc         string
+	Views        int
+	Title        string
+}
+
+func (res ResultYoutube) ToCSV() string {
+	return fmt.Sprintf(
+		"%s,%s,%s,%s,%s,%s,%s,%s\n",
+		url.QueryEscape(res.Username),
+		url.QueryEscape(res.Title),
+		url.QueryEscape(res.Desc),
+		url.QueryEscape(res.Date.String()),
+		url.QueryEscape(res.Link),
+		strconv.Itoa(res.TotalLike),
+		strconv.Itoa(res.TotalComment),
+		strconv.Itoa(res.Views),
+	)
+}
+
+func YoutubePOC(ctx playwright.BrowserContext) {
+	page, err := ctx.NewPage()
+	if err != nil {
+		log.Fatalf("failed to open new page: %v", err)
+	}
+	targetURI := "https://www.youtube.com/@KementerianATRBPN/videos"
+	if _, err := page.Goto(targetURI); err != nil {
+		log.Fatalf("failed to go to %v: %v", targetURI, err)
+	}
+
+	contents, err := page.Locator("ytd-rich-item-renderer").All()
+	if err != nil {
+		log.Fatalf("failed to get contents wrapper: %v", err)
+	}
+	maxFetchedData := 10
+	fetchedData := 0
+
+	results := []ResultYoutube{}
+	// Write CSV data to a file
+	file, err := os.OpenFile("youtube.csv", os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatalf("could not create file: %v", err)
+	}
+	defer file.Close()
+
+	csvData := fmt.Sprintf("sep=,\n%v\n", "username,title,desc,date,link,like,comment,views")
+	_, err = file.WriteString(csvData)
+	if err != nil {
+		log.Fatalf("could not write to file: %v", err)
+	}
+
+	for _, content := range contents {
+		if fetchedData >= maxFetchedData {
+			break
+		}
+		newEntry := ResultYoutube{}
+		fetchedData++
+		vidURL, _ := content.Locator("a").First().GetAttribute("href")
+		newEntry.Link = fmt.Sprintf("https://youtube.com/%v", vidURL)
+		newEntry.Username = "@KementerianATRBPN"
+		results = append(results, newEntry)
+	}
+
+	for i, res := range results {
+		if _, err := page.Goto(res.Link); err != nil {
+			log.Fatalf("failed to open vid link %v: %v", res.Link, err)
+		}
+
+		if err := page.Locator("div#title h1").First().WaitFor(); err != nil {
+			log.Fatalf("failed to load async video data: %v", err)
+		}
+
+		results[i].Title, err = page.Locator("div#title h1").First().InnerText()
+		if err != nil {
+			log.Fatalf("failed to get video title: %v", err)
+		}
+
+		tooltipValue, err := page.Locator("#description-inner #tooltip").First().InnerText()
+		tooltipValue = strings.TrimSpace(tooltipValue)
+		if err != nil {
+			log.Fatalf("failed to get tooltip value: %v", err)
+		}
+		regexDate := regexp.MustCompile("\\w\\w\\w \\d?\\d, \\d\\d\\d\\d")
+		match := regexDate.FindAllString(tooltipValue, 1)
+		if len(match) < 1 {
+			log.Fatalf("failed to get upload date: tooltipvalue = %v", tooltipValue)
+		}
+		if results[i].Date, err = time.Parse("Jan _2, 2006", match[0]); err != nil {
+			log.Fatalf("failed to parse date %v: %v", match[0], err)
+		}
+
+		regexView := regexp.MustCompile("^(.+) view")
+		match = regexView.FindStringSubmatch(tooltipValue)
+		if len(match) < 2 {
+			log.Fatalf("invalid regex results for total views %v", tooltipValue)
+		}
+		results[i].Views, err = strconv.Atoi(strings.ReplaceAll(match[1], ",", ""))
+		if err != nil {
+			log.Fatalf("failed to parse total views %v: %v", match[1], err)
+		}
+
+		// just in case
+		page.Locator("#description-inline-expander #expand").First().Click()
+		page.Locator("#description-inner #description-inline-expander yt-attributed-string").First().WaitFor()
+		results[i].Desc, _ = page.Locator("#description-inner #description-inline-expander yt-attributed-string").First().InnerText()
+		// skip error check, since maybe the video didn't have description
+
+		btnLikeLabel, err := page.Locator("like-button-view-model button").First().GetAttribute("aria-label")
+		if err != nil {
+			log.Fatalf("failed to get like button: %v", btnLikeLabel)
+		}
+		regexLikeCount := regexp.MustCompile("(\\d|,)+")
+		match = regexLikeCount.FindStringSubmatch(btnLikeLabel)
+		if len(match) < 1 {
+			log.Fatalf("invalid regex results for total likes %v", btnLikeLabel)
+		}
+		results[i].TotalLike, err = strconv.Atoi(strings.ReplaceAll(match[0], ",", ""))
+		if err != nil {
+			log.Fatalf("failed to parse total likes %v: %v", match[0], err)
+		}
+		page.Mouse().Wheel(0, 1200)
+		page.Locator("ytd-comments-header-renderer #count span").First().WaitFor()
+		totalComment, err := page.Locator("ytd-comments-header-renderer #count span").First().InnerText()
+		if totalComment != "" {
+			results[i].TotalComment, err = strconv.Atoi(strings.ReplaceAll(totalComment, ",", ""))
+			if err != nil {
+				log.Fatalf("failed to parse total comments %v: %v", totalComment, err)
+
+			}
+		}
+
+		j, _ := json.MarshalIndent(results[i], "", "  ")
+		fmt.Println(string(j))
+
+		_, err = file.WriteString(results[i].ToCSV())
+		if err != nil {
+			log.Fatalf("could not write to file: %v", err)
+		}
+	}
 }
