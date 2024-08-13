@@ -35,7 +35,8 @@ func main() {
 
 	// FacebookPOC(context)
 	// TwitterPOC(context)
-	InstagramPOC(context)
+	// InstagramPOC(context)
+	YoutubePOC(context)
 }
 
 func TwitterPOC(context playwright.BrowserContext) {
@@ -512,5 +513,16 @@ func InstagramPOC(ctx playwright.BrowserContext) {
 				fmt.Printf("post dumped to Csv: %v", fetchedData)
 			}
 		}
+	}
+}
+
+func YoutubePOC(ctx playwright.BrowserContext) {
+	page, err := ctx.NewPage()
+	if err != nil {
+		log.Fatalf("failed to open new page: %v", err)
+	}
+	targetURI := "https://www.youtube.com/c/KementerianATRBPN"
+	if _, err := page.Goto(targetURI); err != nil {
+		log.Fatalf("failed to go to %v: %v", targetURI, err)
 	}
 }
