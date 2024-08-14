@@ -37,7 +37,8 @@ func main() {
 	// FacebookPOC(context)
 	// TwitterPOC(context)
 	// InstagramPOC(context)
-	YoutubePOC(context)
+	// YoutubePOC(context)
+	TiktokPOC(context)
 }
 
 func TwitterPOC(context playwright.BrowserContext) {
@@ -661,4 +662,54 @@ func YoutubePOC(ctx playwright.BrowserContext) {
 			log.Fatalf("could not write to file: %v", err)
 		}
 	}
+}
+
+func TiktokPOC(ctx playwright.BrowserContext) {
+	dat, err := os.ReadFile("./cookies-tiktok-doidoidoi06.txt")
+	if err != nil {
+		log.Fatalf("failed to read cookies file: %v", err)
+		return
+	}
+
+	cookiesRaw := string(dat)
+	re := regexp.MustCompile("\t|\n")
+	cookieSplitRaw := re.Split(cookiesRaw, -1)
+	// parsing empty
+	cookieSplit := []string{}
+	for _, v := range cookieSplitRaw {
+		if len(v) > 0 {
+			cookieSplit = append(cookieSplit, v)
+		}
+	}
+
+	cookies := []playwright.OptionalCookie{}
+	for i := 0; i < len(cookieSplit)/7; i++ {
+		idx := i * 7
+		expire, _ := strconv.ParseFloat(cookieSplit[idx+4], 64)
+		nc := playwright.OptionalCookie{
+			Name:     cookieSplit[idx+5],
+			Value:    cookieSplit[idx+6],
+			Domain:   playwright.String(cookieSplit[idx+0]),
+			Path:     playwright.String(cookieSplit[idx+2]),
+			Expires:  playwright.Float(expire),
+			HttpOnly: playwright.Bool(true),
+			Secure:   playwright.Bool(true),
+		}
+		cookies = append(cookies, nc)
+	}
+
+	if err := ctx.AddCookies(cookies); err != nil {
+		log.Fatalf("failed to set cookie: %v", err)
+	}
+
+	page, err := ctx.NewPage()
+	targetURI := "https://www.tiktok.com"
+	if _, err := page.Goto(targetURI); err != nil {
+		log.Fatalf("failed to open page %v : %v", targetURI, err)
+	}
+
+	targetAccount := "@kementerian.atrbpn"
+	page.Locator("form[data-e2e='search-box'] input").First().Fill(targetAccount)
+
+	time.Sleep(10 * time.Minute)
 }
