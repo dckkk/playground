@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	stealth "github.com/jonfriesen/playwright-go-stealth"
 	"github.com/playwright-community/playwright-go"
 )
 
@@ -80,6 +81,10 @@ func tiktokPOC(ctx playwright.BrowserContext) {
 	targetURI := "https://www.tiktok.com/@kanwilbpnkaltim"
 	if _, err := page.Goto(targetURI); err != nil {
 		log.Fatalf("failed to open page %v : %v", targetURI, err)
+	}
+
+	if err := stealth.Inject(page); err != nil {
+		log.Fatal("failed to inject stealth plugin")
 	}
 
 	time.Sleep(10 * time.Second)
