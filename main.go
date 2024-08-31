@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	stealth "github.com/jonfriesen/playwright-go-stealth"
 	"github.com/playwright-community/playwright-go"
 )
 
@@ -19,7 +18,7 @@ func main() {
 	}
 	defer pw.Stop()
 	pwConfig := playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(false),
+		Headless: playwright.Bool(true),
 	}
 	browser, err := pw.Chromium.Launch(pwConfig)
 	if err != nil {
@@ -34,9 +33,9 @@ func main() {
 
 	// FacebookPOC(context)
 	// TwitterPOC(context)
-	// InstagramPOC(context)
+	InstagramPOC(context)
 	// YoutubePOC(context)
-	tiktokPOC(context)
+	// tiktokPOC(context)
 }
 
 func tiktokPOC(ctx playwright.BrowserContext) {
@@ -81,10 +80,6 @@ func tiktokPOC(ctx playwright.BrowserContext) {
 	targetURI := "https://www.tiktok.com/@kanwilbpnkaltim"
 	if _, err := page.Goto(targetURI); err != nil {
 		log.Fatalf("failed to open page %v : %v", targetURI, err)
-	}
-
-	if err := stealth.Inject(page); err != nil {
-		log.Fatal("failed to inject stealth plugin")
 	}
 
 	time.Sleep(10 * time.Second)

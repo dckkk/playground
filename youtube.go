@@ -49,6 +49,8 @@ func YoutubePOC(ctx playwright.BrowserContext) {
 		log.Fatalf("failed to go to %v: %v", targetURI, err)
 	}
 
+	page.Locator("ytd-rich-item-renderer").WaitFor()
+
 	contents, err := page.Locator("ytd-rich-item-renderer").All()
 	if err != nil {
 		log.Fatalf("failed to get contents wrapper: %v", err)

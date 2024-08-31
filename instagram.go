@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	stealth "github.com/jonfriesen/playwright-go-stealth"
 	"github.com/playwright-community/playwright-go"
 )
 
@@ -55,6 +56,12 @@ func InstagramPOC(ctx playwright.BrowserContext) {
 	if _, err := page.Goto(targetURI); err != nil {
 		log.Fatalf("failed to open page %v : %v", targetURI, err)
 	}
+
+	if err := stealth.Inject(page); err != nil {
+		log.Fatal("failed to inject stealth plugin")
+	}
+
+	page.Locator("main > div > div:nth-child(3) > div > div").WaitFor()
 
 	rows, err := page.Locator("main > div > div:nth-child(3) > div > div").All()
 	if err != nil {
