@@ -27,24 +27,37 @@ func main() {
 		log.Fatalf("could not create context: %v", err)
 	}
 
-	igAccount := []string{
-		"kanwilbpndkijakarta",
-		"kantahkotajakpus",
-		"kantahkotajakartatimur",
-		"kantahkotajakartabarat",
-		"kantahkotajakartautara",
-		"kantahkotajakartaselatan",
+	// igAccount := []string{
+	// 	"kanwilbpndkijakarta",
+	// 	"kantahkotajakpus",
+	// 	"kantahkotajakartatimur",
+	// 	"kantahkotajakartabarat",
+	// 	"kantahkotajakartautara",
+	// 	"kantahkotajakartaselatan",
+	// }
+
+	ytAccount := []string{
+		"@kanwilbpndkijakarta4650",
+		"@kantahkotajakartapusat",
+		"@kantahkotajakartatimur991",
+		"@kantahkotajakartabarat",
+		"@kantahkotajakartautara3691",
+		"@kantahkotajakartaselatan",
 	}
 
-	for _, v := range igAccount {
-		InstagramPOC(context, NewInstagramConfig(
-			fmt.Sprintf("output/instagram_%v.csv", v),
-			v,
-		))
-
-	}
 	// FacebookPOC(context)
 	// TwitterPOC(context)
-	// YoutubePOC(context)
+	// for _, v := range igAccount {
+	// 	InstagramPOC(context, NewInstagramConfig(
+	// 		fmt.Sprintf("output/instagram_%v.csv", v),
+	// 		v,
+	// 	))
+	// }
+	for _, v := range ytAccount {
+		YoutubePOC(context, NewYoutubeConfig(
+			fmt.Sprintf("output/youtube_%v.csv", v),
+			v,
+		))
+	}
 	// tiktokPOC(context)
 }
