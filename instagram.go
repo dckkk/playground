@@ -13,7 +13,23 @@ import (
 	"github.com/playwright-community/playwright-go"
 )
 
-func InstagramPOC(ctx playwright.BrowserContext) {
+type instagramConfig struct {
+	OutputCSV     string
+	TargetAccount string
+}
+
+func NewInstagramConfig(
+	outputCSV string,
+	targetAccount string,
+) instagramConfig {
+	return instagramConfig{
+		OutputCSV:     outputCSV,
+		TargetAccount: targetAccount,
+	}
+}
+
+func InstagramPOC(ctx playwright.BrowserContext, config instagramConfig) {
+	minDate := time.Date(2024, 8, 26, 0, 0, 0, 0, time.UTC)
 	dat, err := os.ReadFile("./cookies-ig-icjonoss.txt")
 	if err != nil {
 		log.Fatalf("failed to read cookies file: %v", err)
@@ -52,7 +68,8 @@ func InstagramPOC(ctx playwright.BrowserContext) {
 	}
 
 	page, err := ctx.NewPage()
-	targetURI := "https://www.instagram.com/kementerian.atrbpn/"
+	targetURI := fmt.Sprintf("https://www.instagram.com/%v/", config.TargetAccount)
+
 	if _, err := page.Goto(targetURI); err != nil {
 		log.Fatalf("failed to open page %v : %v", targetURI, err)
 	}
@@ -61,24 +78,16 @@ func InstagramPOC(ctx playwright.BrowserContext) {
 		log.Fatal("failed to inject stealth plugin")
 	}
 
-	page.Locator("main > div > div:nth-child(3) > div > div").WaitFor()
-
-	rows, err := page.Locator("main > div > div:nth-child(3) > div > div").All()
-	if err != nil {
-		log.Fatalf("failed to get content rows")
-	}
-
 	// helper function
 	parseTotal := func(v string) int {
 		regex := regexp.MustCompile("\\D")
 		str := regex.ReplaceAllString(v, "")
-		fmt.Println(str)
 		res, _ := strconv.Atoi(str)
 		return res
 	}
 
 	// Write CSV data to a file
-	file, err := os.OpenFile("instagram.csv", os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(config.OutputCSV, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatalf("could not create file: %v", err)
 	}
@@ -90,26 +99,32 @@ func InstagramPOC(ctx playwright.BrowserContext) {
 		log.Fatalf("could not write to file: %v", err)
 	}
 
-	maxFetchedData := 10
+	page.SetDefaultTimeout(10000)
+	for i := 0; i < 5; i++ {
+		page.Keyboard().Down("End")
+		page.Keyboard().Up("End")
+		time.Sleep(time.Second * 3)
+	}
+
+	page.Keyboard().Down("Home")
+	page.Keyboard().Up("Home")
+	page.Locator("main > div > div:nth-child(3) > div > div").WaitFor()
+
+	rows, err := page.Locator("main > div > div:nth-child(3) > div > div").All()
+	if err != nil {
+		log.Fatalf("failed to get content rows")
+	}
+
 	fetchedData := 0
 	results := []Result{}
-	// TODO handling infinite scrolling
-	// https://stackoverflow.com/questions/69183922/playwright-auto-scroll-to-bottom-of-infinite-scroll-pag
 	for _, row := range rows {
-		if fetchedData > maxFetchedData {
-			break
-		}
 		columns, err := row.Locator("> div").All()
 		if err != nil {
 			log.Fatalf("failed to get columns row")
 			return
 		}
-
 		for _, column := range columns {
 			fetchedData++
-			if fetchedData > maxFetchedData {
-				break
-			}
 			column.Hover()
 			newEntry := Result{
 				Link:         "",
@@ -120,16 +135,35 @@ func InstagramPOC(ctx playwright.BrowserContext) {
 				Post:         "",
 			}
 
-			onHoverContent, err := column.Locator("a").AllInnerTexts()
-			if err != nil {
-				log.Fatalf("failed to get like & comment: %v", err)
+			pinned := false
+			if pinned, err = column.Locator("svg[aria-label=\"Pinned post icon\"]").First().IsVisible(); err != nil {
+				log.Fatalf("failed to check pinned post: %v", err)
 			}
-			contentSplit := strings.Split(onHoverContent[0], "\n")
-			commentTotal := parseTotal(contentSplit[0])
-			likeTotal := parseTotal(contentSplit[1])
-			fmt.Printf("comment total: %v, like total: %v \n", commentTotal, likeTotal)
-			newEntry.TotalComment = commentTotal
-			newEntry.TotalLike = likeTotal
+
+			commentTotal := 0
+			likeTotal := 0
+			onHoverContent := []string{""}
+			for i := 0; i < 5; i++ {
+				// try 5 times until we can get comment and all inner texts
+				onHoverContent, err = column.Locator("a").AllInnerTexts()
+				if err != nil {
+					log.Fatalf("failed to get like & comment: %v", err)
+				}
+				if len(onHoverContent[0]) > 0 {
+					break
+				}
+			}
+			fmt.Printf("\n\nonHoverContent (%v): %v\n", len(onHoverContent), onHoverContent)
+			if len(onHoverContent[0]) > 0 {
+				contentSplit := strings.Split(onHoverContent[0], "\n")
+				if len(contentSplit) == 2 {
+					likeTotal = parseTotal(contentSplit[0])
+					commentTotal = parseTotal(contentSplit[1])
+					fmt.Printf("comment total: %v, like total: %v \n", commentTotal, likeTotal)
+					newEntry.TotalComment = commentTotal
+					newEntry.TotalLike = likeTotal
+				}
+			}
 
 			link, err := column.Locator("a").GetAttribute("href")
 			if err != nil {
@@ -165,6 +199,11 @@ func InstagramPOC(ctx playwright.BrowserContext) {
 			dateTime, err := time.Parse("2006-01-02T15:04:05.000Z", rawDateTime)
 			if err != nil {
 				log.Fatalf("failed to parse time: %v", err)
+			}
+			if dateTime.Before(minDate) && !pinned {
+				log.Printf("already passed date: %v", dateTime)
+				fmt.Printf("post dumped to Csv: %v", fetchedData-1)
+				return
 			}
 			fmt.Printf("desc: %v \n", dateTime)
 			newEntry.Date = dateTime
